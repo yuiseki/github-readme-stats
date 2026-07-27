@@ -14,3 +14,6 @@ vercel_token
 *.code-workspace
 
 .vercel
+.env*
+.dev.vars
+.wrangler
