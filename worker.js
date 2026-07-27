@@ -17,24 +17,41 @@ axios.defaults.adapter = "fetch";
 // administrative rules").
 axios.defaults.headers.common["User-Agent"] = "github-readme-stats";
 
-import statsCard from "./api/index.js";
-import repoCard from "./api/pin.js";
-import langCard from "./api/top-langs.js";
-import wakatimeCard from "./api/wakatime.js";
-import gistCard from "./api/gist.js";
-import statusUp from "./api/status/up.js";
-import statusPatInfo from "./api/status/pat-info.js";
-
-const routes = {
-  "/api": statsCard,
-  "/api/": statsCard,
-  "/api/pin": repoCard,
-  "/api/top-langs": langCard,
-  "/api/wakatime": wakatimeCard,
-  "/api/gist": gistCard,
-  "/api/status/up": statusUp,
-  "/api/status/pat-info": statusPatInfo,
-};
+// Route handlers are imported lazily (inside fetch(), after process.env is
+// populated) rather than statically at the top of this module. Workers
+// evaluates a module's top-level code once, before any request/env is
+// available; some handlers (e.g. src/common/retryer.js) read
+// `process.env.PAT_*` at their own module top level, so a static import here
+// would see an empty process.env forever, even after we set it below.
+// Dynamic import()s are cached after the first call, so this still only
+// evaluates each module once per isolate - just after env is ready instead
+// of before.
+let routesPromise;
+async function loadRoutes() {
+  if (!routesPromise) {
+    routesPromise = Promise.all([
+      import("./api/index.js"),
+      import("./api/pin.js"),
+      import("./api/top-langs.js"),
+      import("./api/wakatime.js"),
+      import("./api/gist.js"),
+      import("./api/status/up.js"),
+      import("./api/status/pat-info.js"),
+    ]).then(
+      ([stats, pin, topLangs, wakatime, gist, statusUp, statusPatInfo]) => ({
+        "/api": stats.default,
+        "/api/": stats.default,
+        "/api/pin": pin.default,
+        "/api/top-langs": topLangs.default,
+        "/api/wakatime": wakatime.default,
+        "/api/gist": gist.default,
+        "/api/status/up": statusUp.default,
+        "/api/status/pat-info": statusPatInfo.default,
+      }),
+    );
+  }
+  return routesPromise;
+}
 
 function buildNodeReq(request, url) {
   const query = Object.fromEntries(url.searchParams.entries());
@@ -118,6 +135,7 @@ export default {
       );
     }
 
+    const routes = await loadRoutes();
     const handler = routes[url.pathname];
     if (!handler) {
       return new Response("Not found", { status: 404 });
